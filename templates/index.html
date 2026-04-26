@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>模拟盘 - 专业炒股练习平台</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app">
+        <header class="app-header">
+            <div class="header-left">
+                <h1>模拟盘</h1>
+            </div>
+            <div class="header-right">
+                <span id="update-time" class="update-time">--:--</span>
+                <button id="refresh-btn" class="refresh-btn">刷新</button>
+            </div>
+        </header>
+
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-page="market">
+                <span class="nav-icon">📈</span>
+                <span class="nav-text">行情</span>
+            </button>
+            <button class="nav-item" data-page="trade">
+                <span class="nav-icon">💹</span>
+                <span class="nav-text">交易</span>
+            </button>
+            <button class="nav-item" data-page="portfolio">
+                <span class="nav-icon">💼</span>
+                <span class="nav-text">持仓</span>
+            </button>
+            <button class="nav-item" data-page="account">
+                <span class="nav-icon">👤</span>
+                <span class="nav-text">账户</span>
+            </button>
+        </nav>
+
+        <main class="main-content">
+            <section id="page-market" class="page active">
+                <div class="search-container">
+                    <input type="text" id="stock-search" placeholder="搜索股票代码或名称..." class="search-input">
+                    <div id="search-results" class="search-results"></div>
+                </div>
+
+                <div class="market-indices">
+                    <h2 class="section-title">大盘指数</h2>
+                    <div class="indices-grid" id="indices-container">
+                    </div>
+                </div>
+
+                <div class="stock-chart-section">
+                    <h2 class="section-title">股票详情</h2>
+                    <div class="stock-selector">
+                        <select id="chart-stock-select">
+                            <option value="sh600519">贵州茅台</option>
+                            <option value="sz000001">平安银行</option>
+                            <option value="sh601318">中国平安</option>
+                            <option value="sz002594">比亚迪</option>
+                            <option value="sz300750">宁德时代</option>
+                        </select>
+                        <select id="chart-period-select">
+                            <option value="1week">1周</option>
+                            <option value="1month" selected>1月</option>
+                            <option value="3month">3月</option>
+                            <option value="6month">6月</option>
+                            <option value="1year">1年</option>
+                        </select>
+                    </div>
+                    <div class="stock-info-card" id="stock-detail-card">
+                        <div class="stock-info-header">
+                            <div>
+                                <span class="stock-name" id="detail-stock-name">--</span>
+                                <span class="stock-code" id="detail-stock-code">--</span>
+                            </div>
+                            <div class="price-info">
+                                <span class="current-price" id="detail-current-price">--</span>
+                                <span class="change-info" id="detail-change-info">--</span>
+                            </div>
+                        </div>
+                        <div class="stock-stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">今开</span>
+                                <span class="stat-value" id="detail-open">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">最高</span>
+                                <span class="stat-value up" id="detail-high">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">最低</span>
+                                <span class="stat-value down" id="detail-low">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">昨收</span>
+                                <span class="stat-value" id="detail-prev-close">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">成交量</span>
+                                <span class="stat-value" id="detail-volume">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">成交额</span>
+                                <span class="stat-value" id="detail-amount">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">换手率</span>
+                                <span class="stat-value" id="detail-turnover">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">市盈率</span>
+                                <span class="stat-value" id="detail-pe">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="stock-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="news-section">
+                    <h2 class="section-title">市场资讯</h2>
+                    <div class="news-list" id="news-container">
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-trade" class="page">
+                <div class="trade-section">
+                    <div class="trade-tabs">
+                        <button class="trade-tab active" data-type="buy">买入</button>
+                        <button class="trade-tab" data-type="sell">卖出</button>
+                    </div>
+
+                    <div class="trade-form">
+                        <div class="form-group">
+                            <label for="trade-stock-input">股票代码/名称</label>
+                            <div class="stock-input-wrapper">
+                                <input type="text" id="trade-stock-input" placeholder="输入股票代码或名称">
+                                <div id="trade-search-results" class="search-dropdown"></div>
+                            </div>
+                            <div id="selected-stock-info" class="selected-stock-info"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="trade-price">委托价格 (元)</label>
+                            <div class="price-input-wrapper">
+                                <input type="number" id="trade-price" step="0.01" placeholder="输入价格">
+                                <button class="price-btn" data-action="market">市价</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="trade-quantity">委托数量 (股)</label>
+                            <div class="quantity-input-wrapper">
+                                <input type="number" id="trade-quantity" step="100" placeholder="输入数量（100的整数倍）">
+                            </div>
+                            <div class="quantity-buttons">
+                                <button class="quantity-btn" data-percent="25">1/4</button>
+                                <button class="quantity-btn" data-percent="50">1/2</button>
+                                <button class="quantity-btn" data-percent="75">3/4</button>
+                                <button class="quantity-btn" data-percent="100">全仓</button>
+                            </div>
+                        </div>
+
+                        <div class="trade-summary" id="trade-summary">
+                            <div class="summary-row">
+                                <span class="summary-label">交易金额:</span>
+                                <span class="summary-value" id="summary-amount">¥0.00</span>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">手续费:</span>
+                                <span class="summary-value" id="summary-fee">¥0.00</span>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">印花税:</span>
+                                <span class="summary-value" id="summary-stamp">¥0.00</span>
+                            </div>
+                            <div class="summary-row total">
+                                <span class="summary-label">合计:</span>
+                                <span class="summary-value" id="summary-total">¥0.00</span>
+                            </div>
+                        </div>
+
+                        <button id="trade-submit-btn" class="trade-submit-btn buy">确认买入</button>
+                    </div>
+                </div>
+
+                <div class="transaction-history-section">
+                    <h3 class="section-title">交易记录</h3>
+                    <div class="transaction-list" id="transaction-list">
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-portfolio" class="page">
+                <div class="portfolio-summary">
+                    <div class="summary-card">
+                        <span class="summary-label">总市值</span>
+                        <span class="summary-value" id="portfolio-market-value">¥0.00</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="summary-label">总盈亏</span>
+                        <span class="summary-value" id="portfolio-profit-loss">¥0.00</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="summary-label">盈亏比例</span>
+                        <span class="summary-value" id="portfolio-profit-rate">0.00%</span>
+                    </div>
+                </div>
+
+                <div class="portfolio-list">
+                    <h3 class="section-title">我的持仓</h3>
+                    <div id="portfolio-items">
+                        <div class="empty-state">
+                            <span class="empty-icon">📭</span>
+                            <p>暂无持仓</p>
+                            <p class="empty-hint">去交易页面买入股票吧</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-account" class="page">
+                <div class="account-header">
+                    <div class="avatar">
+                        <span>👤</span>
+                    </div>
+                    <div class="account-info">
+                        <h2>模拟盘账户</h2>
+                        <p>初始资金: ¥1,000,000.00</p>
+                    </div>
+                </div>
+
+                <div class="assets-overview">
+                    <h3 class="section-title">资产概览</h3>
+                    <div class="assets-grid">
+                        <div class="asset-card">
+                            <span class="asset-label">总资产</span>
+                            <span class="asset-value" id="asset-total">¥0.00</span>
+                        </div>
+                        <div class="asset-card">
+                            <span class="asset-label">可用资金</span>
+                            <span class="asset-value" id="asset-available">¥0.00</span>
+                        </div>
+                        <div class="asset-card">
+                            <span class="asset-label">持仓市值</span>
+                            <span class="asset-value" id="asset-market">¥0.00</span>
+                        </div>
+                        <div class="asset-card profit-card">
+                            <span class="asset-label">总盈亏</span>
+                            <span class="asset-value" id="asset-profit">¥0.00</span>
+                            <span class="asset-rate" id="asset-profit-rate">0.00%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="account-stats">
+                    <h3 class="section-title">交易统计</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span class="stat-icon">📊</span>
+                            <span class="stat-number" id="stat-total-trades">0</span>
+                            <span class="stat-label">总交易次数</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-icon">💵</span>
+                            <span class="stat-number" id="stat-total-amount">¥0</span>
+                            <span class="stat-label">总交易金额</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-icon">📈</span>
+                            <span class="stat-number" id="stat-win-rate">0%</span>
+                            <span class="stat-label">胜率</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="quick-actions">
+                    <h3 class="section-title">快捷操作</h3>
+                    <div class="actions-grid">
+                        <button class="action-btn" onclick="app.navigateTo('trade')">
+                            <span class="action-icon">💹</span>
+                            <span>买入股票</span>
+                        </button>
+                        <button class="action-btn" onclick="app.navigateTo('portfolio')">
+                            <span class="action-icon">💼</span>
+                            <span>查看持仓</span>
+                        </button>
+                        <button class="action-btn" onclick="app.navigateTo('market')">
+                            <span class="action-icon">📈</span>
+                            <span>行情中心</span>
+                        </button>
+                        <button class="action-btn" onclick="app.refreshAllData()">
+                            <span class="action-icon">🔄</span>
+                            <span>刷新数据</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="toast-container"></div>
+
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p>加载中...</p>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
