@@ -136,6 +136,12 @@
                         <button class="trade-tab" data-type="sell">卖出</button>
                     </div>
 
+                    <div class="hot-stocks-section">
+                        <h3 class="section-title">热门股票 <span class="hot-tag">快速选择</span></h3>
+                        <div class="hot-stocks-grid" id="hot-stocks-container">
+                        </div>
+                    </div>
+
                     <div class="trade-form">
                         <div class="form-group">
                             <label for="trade-stock-input">股票代码/名称</label>
@@ -303,6 +309,24 @@
                 </div>
             </section>
         </main>
+
+        <div id="news-modal" class="modal hidden">
+            <div class="modal-overlay" onclick="app.closeNewsModal()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="news-modal-title">新闻详情</h3>
+                    <button class="modal-close" onclick="app.closeNewsModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="news-detail-meta">
+                        <span id="news-modal-source">来源：--</span>
+                        <span id="news-modal-time">时间：--</span>
+                    </div>
+                    <div id="news-modal-content" class="news-detail-content">
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id="toast-container"></div>
 

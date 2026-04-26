@@ -20,23 +20,81 @@ class DataProvider:
         self.cache = {}
         self.cache_time = {}
         self.crawler = StockCrawler()
+        self._cache_ttl = {
+            'market_overview': 30,
+            'stock_info': 10,
+            'stock_history': 300,
+            'search': 60,
+            'news': 120,
+            'hot_stocks': 60
+        }
+
+    def _get_cache(self, key):
+        if key in self.cache and key in self.cache_time:
+            import time
+            if time.time() - self.cache_time[key] < self._cache_ttl.get(key.split(':')[0], 60):
+                return self.cache[key]
+        return None
+
+    def _set_cache(self, key, value):
+        import time
+        self.cache[key] = value
+        self.cache_time[key] = time.time()
     
     def get_market_overview(self) -> Dict[str, Any]:
+        cached = self._get_cache('market_overview')
+        if cached:
+            return cached
+        
         try:
-            sh_index = self._get_index_info('sh000001', '上证指数')
-            sz_index = self._get_index_info('sz399001', '深证成指')
-            cy_index = self._get_index_info('sz399006', '创业板指')
-            kc_index = self._get_index_info('sh000688', '科创50')
+            indices = []
+            sentiment_data = None
             
-            return {
-                'indices': [sh_index, sz_index, cy_index, kc_index],
+            try:
+                sentiment_data = self.crawler.get_market_sentiment()
+            except Exception as e:
+                print(f"新浪API获取市场情绪失败: {e}")
+            
+            index_configs = [
+                ('sh000001', '上证指数', 'sh_index'),
+                ('sz399001', '深证成指', 'sz_index'),
+                ('sz399006', '创业板指', 'cy_index'),
+                ('sh000688', '科创50', None)
+            ]
+            
+            for symbol, name, sentiment_key in index_configs:
+                index_data = None
+                
+                if sentiment_data and sentiment_key and sentiment_key in sentiment_data and sentiment_data[sentiment_key]:
+                    idx_data = sentiment_data[sentiment_key]
+                    index_data = {
+                        'symbol': symbol,
+                        'name': name,
+                        'current': idx_data.get('current', 0),
+                        'change': idx_data.get('change', 0),
+                        'change_point': idx_data.get('change_point', 0),
+                        'volume': idx_data.get('volume', 0),
+                        'amount': idx_data.get('amount', 0)
+                    }
+                
+                if not index_data or index_data['current'] == 0:
+                    index_data = self._get_index_info_fallback(symbol, name)
+                
+                indices.append(index_data)
+            
+            result = {
+                'indices': indices,
                 'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
+            
+            self._set_cache('market_overview', result)
+            return result
+            
         except Exception as e:
             print(f"获取市场概览失败: {e}")
             return self._get_fallback_market_data()
     
-    def _get_index_info(self, symbol: str, name: str) -> Dict[str, Any]:
+    def _get_index_info_fallback(self, symbol: str, name: str) -> Dict[str, Any]:
         if AKSHARE_AVAILABLE:
             try:
                 df = ak.stock_zh_index_spot()
@@ -55,30 +113,6 @@ class DataProvider:
                     }
             except Exception as e:
                 print(f"akshare获取指数信息失败: {e}")
-        
-        try:
-            sentiment_data = self.crawler.get_market_sentiment()
-            key = None
-            if symbol == 'sh000001':
-                key = 'sh_index'
-            elif symbol == 'sz399001':
-                key = 'sz_index'
-            elif symbol == 'sz399006':
-                key = 'cy_index'
-            
-            if key and key in sentiment_data and sentiment_data[key]:
-                idx_data = sentiment_data[key]
-                return {
-                    'symbol': symbol,
-                    'name': name,
-                    'current': idx_data.get('current', 0),
-                    'change': idx_data.get('change', 0),
-                    'change_point': idx_data.get('change_point', 0),
-                    'volume': idx_data.get('volume', 0),
-                    'amount': idx_data.get('amount', 0)
-                }
-        except Exception as e:
-            print(f"爬虫获取指数信息失败: {e}")
         
         return self._get_fallback_index(symbol, name)
     
@@ -315,51 +349,68 @@ class DataProvider:
         }
     
     def search_stocks(self, keyword: str) -> List[Dict[str, Any]]:
+        cache_key = f'search:{keyword}' if keyword else 'search:hot'
+        cached = self._get_cache(cache_key)
+        if cached:
+            return cached
+        
         try:
+            results = None
+            
             if not keyword:
                 try:
                     hot_stocks = self.crawler.get_hot_stocks_from_sina()
                     if hot_stocks and len(hot_stocks) > 0:
-                        return hot_stocks
+                        results = hot_stocks
                 except:
                     pass
-                return self._get_hot_stocks()
+                
+                if not results:
+                    results = self._get_hot_stocks()
+            else:
+                if AKSHARE_AVAILABLE:
+                    try:
+                        realtime_df = ak.stock_zh_a_spot_em()
+                        search_results = []
+                        
+                        mask = (realtime_df['代码'].str.contains(keyword, case=False, na=False) | 
+                               realtime_df['名称'].str.contains(keyword, case=False, na=False))
+                        
+                        filtered = realtime_df[mask].head(20)
+                        
+                        for _, row in filtered.iterrows():
+                            search_results.append({
+                                'symbol': self._format_symbol(row['代码']),
+                                'name': row['名称'],
+                                'current': float(row['最新价']) if pd.notna(row['最新价']) else 0,
+                                'change': float(row['涨跌幅']) if pd.notna(row['涨跌幅']) else 0
+                            })
+                        
+                        if search_results:
+                            results = search_results
+                    except Exception as e:
+                        print(f"akshare搜索股票失败，尝试爬虫: {e}")
+                
+                if not results:
+                    crawler_results = self.crawler.search_stocks_by_keyword(keyword)
+                    if crawler_results and len(crawler_results) > 0:
+                        for item in crawler_results:
+                            stock_info = self.get_stock_info(item['symbol'])
+                            item['current'] = stock_info.get('current', 0)
+                            item['change'] = stock_info.get('change', 0)
+                        results = crawler_results
+                
+                if not results:
+                    results = self._get_fallback_search(keyword)
             
-            if AKSHARE_AVAILABLE:
-                try:
-                    realtime_df = ak.stock_zh_a_spot_em()
-                    results = []
-                    
-                    mask = (realtime_df['代码'].str.contains(keyword, case=False, na=False) | 
-                           realtime_df['名称'].str.contains(keyword, case=False, na=False))
-                    
-                    filtered = realtime_df[mask].head(20)
-                    
-                    for _, row in filtered.iterrows():
-                        results.append({
-                            'symbol': self._format_symbol(row['代码']),
-                            'name': row['名称'],
-                            'current': float(row['最新价']) if pd.notna(row['最新价']) else 0,
-                            'change': float(row['涨跌幅']) if pd.notna(row['涨跌幅']) else 0
-                        })
-                    
-                    if results:
-                        return results
-                except Exception as e:
-                    print(f"akshare搜索股票失败，尝试爬虫: {e}")
+            self._set_cache(cache_key, results)
+            return results
             
-            crawler_results = self.crawler.search_stocks_by_keyword(keyword)
-            if crawler_results and len(crawler_results) > 0:
-                for item in crawler_results:
-                    stock_info = self.get_stock_info(item['symbol'])
-                    item['current'] = stock_info.get('current', 0)
-                    item['change'] = stock_info.get('change', 0)
-                return crawler_results
-            
-            return self._get_fallback_search(keyword)
         except Exception as e:
             print(f"搜索股票失败: {e}")
-            return self._get_fallback_search(keyword)
+            fallback = self._get_fallback_search(keyword)
+            self._set_cache(cache_key, fallback)
+            return fallback
     
     def _get_hot_stocks(self) -> List[Dict[str, Any]]:
         hot_stocks = [
@@ -399,34 +450,48 @@ class DataProvider:
         return hot_stocks[:10]
     
     def get_market_news(self) -> List[Dict[str, Any]]:
+        cached = self._get_cache('news')
+        if cached:
+            return cached
+        
         try:
+            results = None
+            
             if AKSHARE_AVAILABLE:
                 try:
                     news_list = ak.stock_news_em(symbol="A股市场")
                     
                     if not news_list.empty:
-                        results = []
+                        news_results = []
                         for _, row in news_list.head(10).iterrows():
-                            results.append({
+                            news_results.append({
                                 'title': row['新闻标题'],
                                 'url': row['新闻链接'],
                                 'source': row['信息来源'],
                                 'time': row['发布时间'],
                                 'content': row['新闻内容'] if pd.notna(row['新闻内容']) else ''
                             })
-                        if results and len(results) > 0:
-                            return results
+                        if news_results and len(news_results) > 0:
+                            results = news_results
                 except Exception as e:
                     print(f"akshare获取新闻失败，尝试爬虫: {e}")
             
-            crawler_news = self.crawler.get_all_news()
-            if crawler_news and len(crawler_news) > 0:
-                return crawler_news
+            if not results:
+                crawler_news = self.crawler.get_all_news()
+                if crawler_news and len(crawler_news) > 0:
+                    results = crawler_news
             
-            return self._get_fallback_news()
+            if not results:
+                results = self._get_fallback_news()
+            
+            self._set_cache('news', results)
+            return results
+            
         except Exception as e:
             print(f"获取新闻失败: {e}")
-            return self._get_fallback_news()
+            fallback = self._get_fallback_news()
+            self._set_cache('news', fallback)
+            return fallback
     
     def _get_fallback_news(self) -> List[Dict[str, Any]]:
         fallback_news = [

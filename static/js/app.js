@@ -4,13 +4,15 @@ class StockTradingApp {
         this.selectedStock = null;
         this.tradeType = 'buy';
         this.chart = null;
+        this.hotStocks = [];
+        this.currentNews = null;
         this.init();
     }
 
     init() {
         this.bindEvents();
         this.navigateTo('market');
-        this.refreshAllData();
+        this.updateTime();
     }
 
     bindEvents() {
@@ -120,7 +122,7 @@ class StockTradingApp {
         if (page === 'market') {
             this.loadMarketData();
         } else if (page === 'trade') {
-            this.loadTransactionHistory();
+            this.loadTradePageData();
         } else if (page === 'portfolio') {
             this.loadPortfolio();
         } else if (page === 'account') {
@@ -182,6 +184,20 @@ class StockTradingApp {
             console.error('加载市场数据失败:', error);
         }
 
+        setTimeout(() => {
+            this.loadNews();
+        }, 100);
+
+        setTimeout(() => {
+            const chartStockSelect = document.getElementById('chart-stock-select');
+            const chartPeriodSelect = document.getElementById('chart-period-select');
+            if (chartStockSelect) {
+                this.loadStockChart(chartStockSelect.value, chartPeriodSelect?.value || '1month');
+            }
+        }, 300);
+    }
+
+    async loadNews() {
         try {
             const response = await fetch('/api/news');
             const data = await response.json();
@@ -192,12 +208,76 @@ class StockTradingApp {
         } catch (error) {
             console.error('加载新闻失败:', error);
         }
+    }
 
-        const chartStockSelect = document.getElementById('chart-stock-select');
-        const chartPeriodSelect = document.getElementById('chart-period-select');
-        if (chartStockSelect) {
-            this.loadStockChart(chartStockSelect.value, chartPeriodSelect?.value || '1month');
+    async loadTradePageData() {
+        this.loadTransactionHistory();
+        
+        if (this.hotStocks.length === 0) {
+            await this.loadHotStocks();
+        } else {
+            this.renderHotStocks(this.hotStocks);
         }
+    }
+
+    async loadHotStocks() {
+        try {
+            const response = await fetch('/api/search?keyword=');
+            const data = await response.json();
+            
+            if (data.success && data.data && data.data.length > 0) {
+                this.hotStocks = data.data.slice(0, 6);
+                this.renderHotStocks(this.hotStocks);
+            }
+        } catch (error) {
+            console.error('加载热门股票失败:', error);
+        }
+    }
+
+    renderHotStocks(stocks) {
+        const container = document.getElementById('hot-stocks-container');
+        if (!container) return;
+
+        container.innerHTML = stocks.map(stock => {
+            const isUp = stock.change >= 0;
+            const priceClass = isUp ? 'up' : 'down';
+            const changePrefix = isUp ? '+' : '';
+
+            return `
+                <div class="hot-stock-item" data-symbol="${stock.symbol}" data-name="${this.escapeHtml(stock.name)}">
+                    <div class="hot-stock-header">
+                        <div>
+                            <span class="hot-stock-name">${this.escapeHtml(stock.name)}</span>
+                            <span class="hot-stock-code">${stock.symbol}</span>
+                        </div>
+                        <div>
+                            <span class="hot-stock-price ${priceClass}">${stock.current.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    <div class="hot-stock-change ${priceClass}">
+                        ${changePrefix}${stock.change.toFixed(2)}%
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.querySelectorAll('.hot-stock-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const symbol = item.dataset.symbol;
+                this.selectHotStock(symbol, item);
+            });
+        });
+    }
+
+    selectHotStock(symbol, element) {
+        document.querySelectorAll('.hot-stock-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        if (element) {
+            element.classList.add('selected');
+        }
+
+        this.selectStock(symbol, 'trade');
     }
 
     renderIndices(indices) {
@@ -233,15 +313,78 @@ class StockTradingApp {
             return;
         }
 
-        container.innerHTML = news.map(item => `
-            <div class="news-item">
-                <div class="news-title">${this.escapeHtml(item.title)}</div>
-                <div class="news-meta">
-                    <span>${this.escapeHtml(item.source || '未知来源')}</span>
-                    <span>${this.escapeHtml(item.time || '')}</span>
+        container.innerHTML = news.map((item, index) => {
+            return `
+                <div class="news-item" data-index="${index}">
+                    <div class="news-title">${this.escapeHtml(item.title)}</div>
+                    <div class="news-meta">
+                        <span>${this.escapeHtml(item.source || '未知来源')}</span>
+                        <span>${this.escapeHtml(item.time || '')}</span>
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
+
+        container.querySelectorAll('.news-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const index = parseInt(item.dataset.index);
+                if (news[index]) {
+                    this.showNewsDetail(news[index]);
+                }
+            });
+        });
+    }
+
+    showNewsDetail(news) {
+        this.currentNews = news;
+
+        const titleEl = document.getElementById('news-modal-title');
+        const sourceEl = document.getElementById('news-modal-source');
+        const timeEl = document.getElementById('news-modal-time');
+        const contentEl = document.getElementById('news-modal-content');
+
+        if (titleEl) {
+            titleEl.textContent = news.title || '新闻详情';
+        }
+        if (sourceEl) {
+            sourceEl.textContent = `来源：${news.source || '未知'}`;
+        }
+        if (timeEl) {
+            timeEl.textContent = `时间：${news.time || '未知'}`;
+        }
+        if (contentEl) {
+            let content = '';
+            if (news.content && news.content.trim()) {
+                content = `<p>${news.content}</p>`;
+            } else if (news.url && news.url.startsWith('http')) {
+                content = '<p style="color: var(--text-secondary); text-align: center;">该新闻未获取到详细内容</p>';
+            } else {
+                content = '<p style="color: var(--text-secondary); text-align: center;">暂无详细内容</p>';
+            }
+            
+            if (news.url && news.url.startsWith('http')) {
+                content += `<p style="text-align: center; margin-top: 24px;">
+                    <a href="${news.url}" target="_blank" 
+                       style="display: inline-block; padding: 10px 24px; background: var(--primary-color); color: white; text-decoration: none; border-radius: 8px; font-weight: 500;">
+                        🔗 查看原文
+                    </a>
+                </p>`;
+            }
+            contentEl.innerHTML = content;
+        }
+
+        const modal = document.getElementById('news-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+
+    closeNewsModal() {
+        const modal = document.getElementById('news-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        this.currentNews = null;
     }
 
     async loadStockChart(symbol, period) {
