@@ -520,10 +520,15 @@ class StockTradingApp {
     }
 
     formatDateLabel(dateStr, period) {
-        const date = new Date(dateStr);
-        if (period === '1week' || period === '1month') {
-            return `${date.getMonth() + 1}/${date.getDate()}`;
+        if (period === 'intraday') {
+            return dateStr;
         }
+        
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            return dateStr;
+        }
+        
         return `${date.getMonth() + 1}/${date.getDate()}`;
     }
 

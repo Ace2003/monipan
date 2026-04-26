@@ -233,8 +233,18 @@ class DataProvider:
         }
     
     def get_stock_history(self, symbol: str, period: str = '1month') -> Dict[str, Any]:
+        cache_key = f'history:{symbol}:{period}'
+        cached = self._get_cache(cache_key)
+        if cached:
+            return cached
+        
         try:
             clean_symbol = self._clean_symbol(symbol)
+            
+            if period == 'intraday':
+                result = self._get_intraday_data(clean_symbol)
+                self._set_cache(cache_key, result)
+                return result
             
             end_date = datetime.now().strftime('%Y%m%d')
             
@@ -271,12 +281,14 @@ class DataProvider:
                                 'amount': float(row['成交额'])
                             })
                         
-                        return {
+                        result = {
                             'symbol': self._format_symbol(clean_symbol),
                             'period': period,
                             'data': history_data,
                             'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         }
+                        self._set_cache(cache_key, result)
+                        return result
                 except Exception as e:
                     print(f"akshare获取历史数据失败: {e}")
             
@@ -292,19 +304,114 @@ class DataProvider:
                 
                 crawler_history = self.crawler.get_stock_history_from_sina(self._format_symbol(clean_symbol), days)
                 if crawler_history and len(crawler_history) > 0:
-                    return {
+                    result = {
                         'symbol': self._format_symbol(clean_symbol),
                         'period': period,
                         'data': crawler_history,
                         'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     }
+                    self._set_cache(cache_key, result)
+                    return result
             except Exception as e:
                 print(f"爬虫获取历史数据失败: {e}")
             
-            return self._get_fallback_history(clean_symbol, period)
+            fallback = self._get_fallback_history(clean_symbol, period)
+            self._set_cache(cache_key, fallback)
+            return fallback
         except Exception as e:
             print(f"获取历史数据失败: {e}")
-            return self._get_fallback_history(self._clean_symbol(symbol), period)
+            fallback = self._get_fallback_history(self._clean_symbol(symbol), period)
+            self._set_cache(cache_key, fallback)
+            return fallback
+    
+    def _get_intraday_data(self, clean_symbol: str) -> Dict[str, Any]:
+        try:
+            if AKSHARE_AVAILABLE:
+                try:
+                    df = ak.stock_zh_a_hist_min_em(symbol=clean_symbol, period='1', adjust='qfq')
+                    
+                    if not df.empty:
+                        history_data = []
+                        for _, row in df.tail(240).iterrows():
+                            time_str = str(row['时间'])
+                            if ' ' in time_str:
+                                time_part = time_str.split(' ')[1][:5]
+                            else:
+                                time_part = time_str[:5]
+                            
+                            history_data.append({
+                                'date': time_part,
+                                'open': float(row['开盘']),
+                                'high': float(row['最高']),
+                                'low': float(row['最低']),
+                                'close': float(row['收盘']),
+                                'volume': float(row['成交量']),
+                                'amount': float(row['成交额'])
+                            })
+                        
+                        return {
+                            'symbol': self._format_symbol(clean_symbol),
+                            'period': 'intraday',
+                            'data': history_data,
+                            'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                except Exception as e:
+                    print(f"akshare获取分时数据失败: {e}")
+            
+            try:
+                intraday_data = self.crawler.get_intraday_from_sina(self._format_symbol(clean_symbol))
+                if intraday_data and len(intraday_data) > 0:
+                    return {
+                        'symbol': self._format_symbol(clean_symbol),
+                        'period': 'intraday',
+                        'data': intraday_data,
+                        'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+            except Exception as e:
+                print(f"爬虫获取分时数据失败: {e}")
+            
+            return self._get_fallback_intraday(clean_symbol)
+        except Exception as e:
+            print(f"获取分时数据失败: {e}")
+            return self._get_fallback_intraday(clean_symbol)
+    
+    def _get_fallback_intraday(self, symbol: str) -> Dict[str, Any]:
+        base_price = float(symbol) % 100 + 10 if symbol.isdigit() else 50
+        history_data = []
+        current_price = base_price * (1 + np.random.uniform(-1, 1)/100)
+        
+        times = []
+        for hour in [9, 10, 11, 13, 14]:
+            start_min = 30 if hour == 9 else 0
+            end_min = 30 if hour == 11 else 60
+            for minute in range(start_min, end_min):
+                times.append(f"{hour:02d}:{minute:02d}")
+        
+        for time_str in times:
+            change = np.random.uniform(-0.5, 0.5)
+            open_price = current_price
+            close_price = open_price * (1 + change/100)
+            high_price = max(open_price, close_price) * (1 + np.random.uniform(0, 0.2)/100)
+            low_price = min(open_price, close_price) * (1 - np.random.uniform(0, 0.2)/100)
+            
+            history_data.append({
+                'date': time_str,
+                'open': round(open_price, 2),
+                'high': round(high_price, 2),
+                'low': round(low_price, 2),
+                'close': round(close_price, 2),
+                'volume': round(np.random.uniform(10000, 100000), 2),
+                'amount': round(close_price * np.random.uniform(10000, 100000), 2)
+            })
+            
+            current_price = close_price
+        
+        return {
+            'symbol': self._format_symbol(symbol),
+            'period': 'intraday',
+            'data': history_data,
+            'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
     
     def _get_fallback_history(self, symbol: str, period: str) -> Dict[str, Any]:
         period_map = {
